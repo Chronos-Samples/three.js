@@ -1,7 +1,7 @@
 import { Quaternion } from '../math/Quaternion.js';
 import { Vector3 } from '../math/Vector3.js';
 import { Matrix4 } from '../math/Matrix4.js';
-import { EventDispatcher } from './EventDispatcher.js';
+import { Event, EventDispatcher } from './EventDispatcher.js';
 import { Euler } from '../math/Euler.js';
 import { Layers } from './Layers.js';
 import { Matrix3 } from '../math/Matrix3.js';
@@ -24,11 +24,62 @@ const _zAxis = /*@__PURE__*/ new Vector3( 0, 0, 1 );
 
 const _addedEvent = { type: 'added' };
 const _removedEvent = { type: 'removed' };
+const _visibilityEvent = { type: 'Object:Visibility Changed' };
 
 const _childaddedEvent = { type: 'childadded', child: null };
 const _childremovedEvent = { type: 'childremoved', child: null };
 
 class Object3D extends EventDispatcher {
+
+	set visible( value ) {
+
+		this.visibilityMap.set( 'default', value );
+
+		this.dispatchEvent( new Event( _visibilityEvent, { bubbles: true } ) );
+
+	}
+
+	get visible() {
+
+		for ( const entry of this.visibilityMap ) {
+
+			if ( entry[ 1 ] === false ) return false;
+
+		}
+
+		return true;
+
+	}
+
+	setVisibility( key, value ) {
+
+		value ? this.visibilityMap.delete( key ) : this.visibilityMap.set( key, value );
+
+		this.dispatchEvent( new Event( _visibilityEvent, { bubbles: true } ) );
+
+	}
+
+	get name() {
+
+		return this._name;
+
+	}
+
+	set name( value ) {
+
+		if ( this._name === value ) return;
+
+		const prevName = this.name;
+
+		this._name = value;
+		this.dispatchEvent( new Event( {
+			type: 'nameChange',
+			prevName: prevName
+		}, {
+			bubbles: false
+		} ) );
+
+	}
 
 	constructor() {
 
@@ -40,10 +91,11 @@ class Object3D extends EventDispatcher {
 
 		this.uuid = MathUtils.generateUUID();
 
-		this.name = '';
+		this._name = '';
 		this.type = 'Object3D';
 
 		this.parent = null;
+		this.scene = null;
 		this.children = [];
 
 		this.up = Object3D.DEFAULT_UP.clone();
@@ -106,6 +158,7 @@ class Object3D extends EventDispatcher {
 		this.matrixWorldNeedsUpdate = false;
 
 		this.layers = new Layers();
+		this.visibilityMap = new Map();
 		this.visible = true;
 
 		this.castShadow = false;
@@ -342,7 +395,7 @@ class Object3D extends EventDispatcher {
 			object.parent = this;
 			this.children.push( object );
 
-			object.dispatchEvent( _addedEvent );
+			object.dispatchEvent( new Event( _addedEvent, { bubbles: true } ) );
 
 			_childaddedEvent.child = object;
 			this.dispatchEvent( _childaddedEvent );
@@ -376,10 +429,10 @@ class Object3D extends EventDispatcher {
 
 		if ( index !== - 1 ) {
 
+			object.dispatchEvent( new Event( { type: _removedEvent.type, prevParent: object.parent }, { bubbles: true } ) );
+
 			object.parent = null;
 			this.children.splice( index, 1 );
-
-			object.dispatchEvent( _removedEvent );
 
 			_childremovedEvent.child = object;
 			this.dispatchEvent( _childremovedEvent );
@@ -407,7 +460,20 @@ class Object3D extends EventDispatcher {
 
 	clear() {
 
-		return this.remove( ... this.children );
+		for ( let i = 0; i < this.children.length; i ++ ) {
+
+			const object = this.children[ i ];
+
+			object.parent = null;
+
+			object.dispatchEvent( new Event( { type: 'removed', prevParent: object.parent }, { bubbles: true } ) );
+
+		}
+
+		this.children.length = 0;
+
+		return this;
+
 
 	}
 
