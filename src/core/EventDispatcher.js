@@ -20,74 +20,78 @@
  * car.start();
  * ```
  */
+
+class Event {
+
+	path = null;
+
+	constructor( eventData, options ) {
+
+		Object.assign( this, eventData );
+
+		if ( ( options && ! options.bubbles ) || ! options ) {
+
+			this.isBubblingStopped = true;
+
+		}
+
+	}
+
+	stopQueue() {
+
+		this.isQueueStopped = true;
+
+	}
+
+	stopBubbling() {
+
+		this.isBubblingStopped = true;
+
+	}
+
+}
+
 class EventDispatcher {
 
-	/**
-	 * Adds the given event listener to the given event type.
-	 *
-	 * @param {string} type - The type of event to listen to.
-	 * @param {Function} listener - The function that gets called when the event is fired.
-	 */
-	addEventListener( type, listener ) {
+	listeners = new Map();
 
-		if ( this._listeners === undefined ) this._listeners = {};
+	addEventListener( type, callback, options ) {
 
-		const listeners = this._listeners;
+		const typedListeners = this.listeners.get( type ) || [];
+		const priority = options?.priority || 0;
 
-		if ( listeners[ type ] === undefined ) {
+		const existingListener = typedListeners.findIndex( ( listener ) => listener.callback === callback );
 
-			listeners[ type ] = [];
+		if ( existingListener === - 1 ) {
+
+			typedListeners.push( { priority, callback } );
+			typedListeners.sort( ( listenerA, listenerB ) => listenerB.priority - listenerA.priority );
 
 		}
 
-		if ( listeners[ type ].indexOf( listener ) === - 1 ) {
-
-			listeners[ type ].push( listener );
-
-		}
+		this.listeners.set( type, typedListeners );
 
 	}
 
-	/**
-	 * Returns `true` if the given event listener has been added to the given event type.
-	 *
-	 * @param {string} type - The type of event.
-	 * @param {Function} listener - The listener to check.
-	 * @return {boolean} Whether the given event listener has been added to the given event type.
-	 */
-	hasEventListener( type, listener ) {
+	hasEventListener( type, callback ) {
 
-		const listeners = this._listeners;
+		const typedListeners = this.listeners.get( type );
+		if ( ! typedListeners ) return false;
 
-		if ( listeners === undefined ) return false;
-
-		return listeners[ type ] !== undefined && listeners[ type ].indexOf( listener ) !== - 1;
+		return typedListeners.findIndex( ( listener ) => listener.callback === callback ) !== - 1;
 
 	}
 
-	/**
-	 * Removes the given event listener from the given event type.
-	 *
-	 * @param {string} type - The type of event.
-	 * @param {Function} listener - The listener to remove.
-	 */
-	removeEventListener( type, listener ) {
+	removeEventListener( type, callback ) {
 
-		const listeners = this._listeners;
+		const typedListeners = this.listeners.get( type );
+		if ( typedListeners === undefined ) return;
 
-		if ( listeners === undefined ) return;
+		const index = typedListeners.findIndex( ( listener ) => listener.callback === callback );
 
-		const listenerArray = listeners[ type ];
+		if ( index !== - 1 ) {
 
-		if ( listenerArray !== undefined ) {
-
-			const index = listenerArray.indexOf( listener );
-
-			if ( index !== - 1 ) {
-
-				listenerArray.splice( index, 1 );
-
-			}
+			typedListeners.splice( index, 1 );
 
 		}
 
@@ -100,26 +104,44 @@ class EventDispatcher {
 	 */
 	dispatchEvent( event ) {
 
-		const listeners = this._listeners;
+		let typedListeners = this.listeners.get( event.type ) || [];
 
-		if ( listeners === undefined ) return;
+		if ( ! event.target ) event.target = this;
 
-		const listenerArray = listeners[ event.type ];
+		if ( ! event.path ) {
 
-		if ( listenerArray !== undefined ) {
+			const path = [];
+			let current = this;
+			while ( current.parent ) {
 
-			event.target = this;
-
-			// Make a copy, in case listeners are removed while iterating.
-			const array = listenerArray.slice( 0 );
-
-			for ( let i = 0, l = array.length; i < l; i ++ ) {
-
-				array[ i ].call( this, event );
+				path.push( current.parent );
+				current = current.parent;
 
 			}
 
-			event.target = null;
+			event.path = path;
+
+		}
+
+		// Make a copy, in case listeners are removed while iterating.
+		typedListeners = typedListeners.slice( 0 );
+
+		for ( let i = 0, l = typedListeners.length; i < l; i ++ ) {
+
+			if ( event.isQueueStopped ) {
+
+				event.isQueueStopped = false;
+				break;
+
+			}
+
+			typedListeners[ i ].callback.call( this, event );
+
+		}
+
+		if ( event.path.length && ! event.isBubblingStopped ) {
+
+			event.path.pop().dispatchEvent( event );
 
 		}
 
@@ -127,5 +149,4 @@ class EventDispatcher {
 
 }
 
-
-export { EventDispatcher };
+export { Event, EventDispatcher };
