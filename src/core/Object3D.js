@@ -804,7 +804,7 @@ class Object3D extends EventDispatcher {
 			object.dispatchEvent( new Event( _addedEvent, { bubbles: true } ) );
 
 			_childaddedEvent.child = object;
-			this.dispatchEvent( _childaddedEvent );
+			this.dispatchEvent( new Event( _childaddedEvent ) );
 			_childaddedEvent.child = null;
 
 		} else {
@@ -850,7 +850,7 @@ class Object3D extends EventDispatcher {
 			this.children.splice( index, 1 );
 
 			_childremovedEvent.child = object;
-			this.dispatchEvent( _childremovedEvent );
+			this.dispatchEvent( new Event( _childremovedEvent ) );
 			_childremovedEvent.child = null;
 
 		}
@@ -941,10 +941,10 @@ class Object3D extends EventDispatcher {
 
 		object.updateWorldMatrix( false, true );
 
-		object.dispatchEvent( _addedEvent );
+		object.dispatchEvent( new Event( _addedEvent ) );
 
 		_childaddedEvent.child = object;
-		this.dispatchEvent( _childaddedEvent );
+		this.dispatchEvent( new Event( _childaddedEvent ) );
 		_childaddedEvent.child = null;
 
 		return this;
