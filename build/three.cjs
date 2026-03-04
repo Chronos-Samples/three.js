@@ -2151,74 +2151,78 @@ const ReversedDepthFuncs = {
  * car.start();
  * ```
  */
+
+class Event {
+
+	path = null;
+
+	constructor( eventData, options ) {
+
+		Object.assign( this, eventData );
+
+		if ( ( options && ! options.bubbles ) || ! options ) {
+
+			this.isBubblingStopped = true;
+
+		}
+
+	}
+
+	stopQueue() {
+
+		this.isQueueStopped = true;
+
+	}
+
+	stopBubbling() {
+
+		this.isBubblingStopped = true;
+
+	}
+
+}
+
 class EventDispatcher {
 
-	/**
-	 * Adds the given event listener to the given event type.
-	 *
-	 * @param {string} type - The type of event to listen to.
-	 * @param {Function} listener - The function that gets called when the event is fired.
-	 */
-	addEventListener( type, listener ) {
+	listeners = new Map();
 
-		if ( this._listeners === undefined ) this._listeners = {};
+	addEventListener( type, callback, options ) {
 
-		const listeners = this._listeners;
+		const typedListeners = this.listeners.get( type ) || [];
+		const priority = options?.priority || 0;
 
-		if ( listeners[ type ] === undefined ) {
+		const existingListener = typedListeners.findIndex( ( listener ) => listener.callback === callback );
 
-			listeners[ type ] = [];
+		if ( existingListener === -1 ) {
+
+			typedListeners.push( { priority, callback } );
+			typedListeners.sort( ( listenerA, listenerB ) => listenerB.priority - listenerA.priority );
 
 		}
 
-		if ( listeners[ type ].indexOf( listener ) === -1 ) {
-
-			listeners[ type ].push( listener );
-
-		}
+		this.listeners.set( type, typedListeners );
 
 	}
 
-	/**
-	 * Returns `true` if the given event listener has been added to the given event type.
-	 *
-	 * @param {string} type - The type of event.
-	 * @param {Function} listener - The listener to check.
-	 * @return {boolean} Whether the given event listener has been added to the given event type.
-	 */
-	hasEventListener( type, listener ) {
+	hasEventListener( type, callback ) {
 
-		const listeners = this._listeners;
+		const typedListeners = this.listeners.get( type );
+		if ( ! typedListeners ) return false;
 
-		if ( listeners === undefined ) return false;
-
-		return listeners[ type ] !== undefined && listeners[ type ].indexOf( listener ) !== -1;
+		return typedListeners.findIndex( ( listener ) => listener.callback === callback ) !== -1;
 
 	}
 
-	/**
-	 * Removes the given event listener from the given event type.
-	 *
-	 * @param {string} type - The type of event.
-	 * @param {Function} listener - The listener to remove.
-	 */
-	removeEventListener( type, listener ) {
+	removeEventListener( type, callback ) {
 
-		const listeners = this._listeners;
+		const typedListeners = this.listeners.get( type );
+		if ( typedListeners === undefined ) return;
 
-		if ( listeners === undefined ) return;
+		const index = typedListeners.findIndex( ( listener ) => listener.callback === callback );
 
-		const listenerArray = listeners[ type ];
+		if ( index !== -1 ) {
 
-		if ( listenerArray !== undefined ) {
-
-			const index = listenerArray.indexOf( listener );
-
-			if ( index !== -1 ) {
-
-				listenerArray.splice( index, 1 );
-
-			}
+			typedListeners.splice( index, 1 );
 
 		}
 
@@ -2231,26 +2235,44 @@ class EventDispatcher {
 	 */
 	dispatchEvent( event ) {
 
-		const listeners = this._listeners;
+		let typedListeners = this.listeners.get( event.type ) || [];
 
-		if ( listeners === undefined ) return;
+		if ( ! event.target ) event.target = this;
 
-		const listenerArray = listeners[ event.type ];
+		if ( ! event.path ) {
 
-		if ( listenerArray !== undefined ) {
+			const path = [];
+			let current = this;
+			while ( current.parent ) {
 
-			event.target = this;
-
-			// Make a copy, in case listeners are removed while iterating.
-			const array = listenerArray.slice( 0 );
-
-			for ( let i = 0, l = array.length; i < l; i ++ ) {
-
-				array[ i ].call( this, event );
+				path.push( current.parent );
+				current = current.parent;
 
 			}
 
-			event.target = null;
+			event.path = path;
+
+		}
+
+		// Make a copy, in case listeners are removed while iterating.
+		typedListeners = typedListeners.slice( 0 );
+
+		for ( let i = 0, l = typedListeners.length; i < l; i ++ ) {
+
+			if ( event.isQueueStopped ) {
+
+				event.isQueueStopped = false;
+				break;
+
+			}
+
+			typedListeners[ i ].callback.call( this, event );
+
+		}
+
+		if ( event.path.length && ! event.isBubblingStopped ) {
+
+			event.path.pop().dispatchEvent( event );
 
 		}
 
@@ -11676,6 +11698,14 @@ const _addedEvent = { type: 'added' };
 const _removedEvent = { type: 'removed' };
 
 /**
+ * Fires when the object has visibility has been changed.
+ *
+ * @event Object3D#'Object:Visibility Changed'
+ * @type {Object}
+ */
+const _visibilityEvent = { type: 'Object:Visibility Changed' };
+
+/**
  * Fires when a new child object has been added.
  *
  * @event Object3D#childadded
@@ -11698,6 +11728,56 @@ const _childremovedEvent = { type: 'childremoved', child: null };
  * @augments EventDispatcher
  */
 class Object3D extends EventDispatcher {
+
+	set visible( value ) {
+
+		this.visibilityMap.set( 'default', value );
+
+		this.dispatchEvent( new Event( _visibilityEvent, { bubbles: true } ) );
+
+	}
+
+	get visible() {
+
+		for ( const entry of this.visibilityMap ) {
+
+			if ( entry[ 1 ] === false ) return false;
+
+		}
+
+		return true;
+
+	}
+
+	setVisibility( key, value ) {
+
+		value ? this.visibilityMap.delete( key ) : this.visibilityMap.set( key, value );
+
+		this.dispatchEvent( new Event( _visibilityEvent, { bubbles: true } ) );
+
+	}
+
+	get name() {
+
+		return this._name;
+
+	}
+
+	set name( value ) {
+
+		if ( this._name === value ) return;
+
+		const prevName = this.name;
+
+		this._name = value;
+		this.dispatchEvent( new Event( {
+			type: 'nameChange',
+			prevName: prevName
+		}, {
+			bubbles: false
+		} ) );
+
+	}
 
 	/**
 	 * Constructs a new 3D object.
@@ -11737,7 +11817,7 @@ class Object3D extends EventDispatcher {
 		 *
 		 * @type {string}
 		 */
-		this.name = '';
+		this._name = '';
 
 		/**
 		 * The type property is used for detecting the object type
@@ -11755,6 +11835,7 @@ class Object3D extends EventDispatcher {
 		 * @default null
 		 */
 		this.parent = null;
+		this.scene = null;
 
 		/**
 		 * An array holding the child 3D objects of this instance.
@@ -11918,6 +11999,7 @@ class Object3D extends EventDispatcher {
 		 */
 		this.layers = new Layers();
 
+		this.visibilityMap = new Map();
 		/**
 		 * When set to `true`, the 3D object gets rendered.
 		 *
@@ -12406,10 +12488,10 @@ class Object3D extends EventDispatcher {
 			object.parent = this;
 			this.children.push( object );
 
-			object.dispatchEvent( _addedEvent );
+			object.dispatchEvent( new Event( _addedEvent, { bubbles: true } ) );
 
 			_childaddedEvent.child = object;
-			this.dispatchEvent( _childaddedEvent );
+			this.dispatchEvent( new Event( _childaddedEvent ) );
 			_childaddedEvent.child = null;
 
 		} else {
@@ -12449,13 +12531,13 @@ class Object3D extends EventDispatcher {
 
 		if ( index !== -1 ) {
 
+			object.dispatchEvent( new Event( { type: _removedEvent.type, prevParent: object.parent }, { bubbles: true } ) );
+
 			object.parent = null;
 			this.children.splice( index, 1 );
 
-			object.dispatchEvent( _removedEvent );
-
 			_childremovedEvent.child = object;
-			this.dispatchEvent( _childremovedEvent );
+			this.dispatchEvent( new Event( _childremovedEvent ) );
 			_childremovedEvent.child = null;
 
 		}
@@ -12494,7 +12576,20 @@ class Object3D extends EventDispatcher {
 	 */
 	clear() {
 
-		return this.remove( ... this.children );
+		for ( let i = 0; i < this.children.length; i ++ ) {
+
+			const object = this.children[ i ];
+
+			object.parent = null;
+
+			object.dispatchEvent( new Event( { type: 'removed', prevParent: object.parent }, { bubbles: true } ) );
+
+		}
+
+		this.children.length = 0;
+
+		return this;
+
 
 	}
 
@@ -12533,10 +12628,10 @@ class Object3D extends EventDispatcher {
 
 		object.updateWorldMatrix( false, true );
 
-		object.dispatchEvent( _addedEvent );
+		object.dispatchEvent( new Event( _addedEvent ) );
 
 		_childaddedEvent.child = object;
-		this.dispatchEvent( _childaddedEvent );
+		this.dispatchEvent( new Event(_childaddedEvent ) );
 		_childaddedEvent.child = null;
 
 		return this;
@@ -78950,6 +79045,7 @@ exports.EqualStencilFunc = EqualStencilFunc;
 exports.EquirectangularReflectionMapping = EquirectangularReflectionMapping;
 exports.EquirectangularRefractionMapping = EquirectangularRefractionMapping;
 exports.Euler = Euler;
+exports.Event = Event;
 exports.EventDispatcher = EventDispatcher;
 exports.ExternalTexture = ExternalTexture;
 exports.ExtrudeGeometry = ExtrudeGeometry;
